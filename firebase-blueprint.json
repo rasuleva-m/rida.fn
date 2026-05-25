@@ -1,0 +1,29 @@
+{
+  "entities": {
+    "Booking": {
+      "title": "Booking",
+      "description": "Information about a service booking request",
+      "type": "object",
+      "properties": {
+        "clientName": { "type": "string" },
+        "clientPhone": { "type": "string" },
+        "service": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "status": { 
+          "type": "string",
+          "enum": ["pending", "confirmed", "cancelled"]
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "telegramMessageId": { "type": "number" }
+      },
+      "required": ["clientName", "clientPhone", "service", "date", "time", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/bookings/{bookingId}": {
+      "schema": "Booking",
+      "description": "Collection of all service bookings"
+    }
+  }
+}
