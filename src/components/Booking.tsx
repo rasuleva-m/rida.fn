@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Calendar, Clock, User, Phone, CheckCircle2, Loader2 } from "lucide-react";
 import { useLanguage } from "../LanguageContext";
+import { httpsCallable } from 'firebase/functions';
+import { functions } from "../firebase";
 
 export default function Booking() {
   const { t } = useLanguage();
@@ -42,16 +44,16 @@ export default function Booking() {
     setStatus('loading');
 
     try {
-      const res = await fetch("/api/booking", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...formData,
-          service: selectedServiceLabel,
-        }),
+      const submitBooking = httpsCallable(functions, 'submitBooking');
+      const result = await submitBooking({
+        name: formData.name,
+        phone: formData.phone,
+        service: selectedServiceLabel,
+        date: formData.date,
+        time: formData.time
       });
 
-      if (res.ok) {
+      if (result.data && result.data.bookingId) {
         setStatus('success');
         setTimeout(() => {
             setStatus('idle');
@@ -61,6 +63,7 @@ export default function Booking() {
         setStatus('error');
       }
     } catch (err) {
+      console.error('Booking error:', err);
       setStatus('error');
     }
   };

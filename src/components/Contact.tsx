@@ -14,7 +14,7 @@ export default function Contact() {
                 {t.contact.description}
              </p>
              <div className="flex space-x-4">
-                <a href="https://instagram.com" target="_blank" className="w-10 h-10 border border-brand-paper/20 rounded-full flex items-center justify-center hover:bg-brand-accent hover:border-brand-accent hover:text-brand-ink transition-all">
+                <a href="https://www.instagram.com/rida.fn?igsh=MWpud3I1NGpzaXB4cg%3D%3D&utm_source=qr" target="_blank" rel="noreferrer noopener" className="w-10 h-10 border border-brand-paper/20 rounded-full flex items-center justify-center hover:bg-brand-accent hover:border-brand-accent hover:text-brand-ink transition-all">
                   <Instagram size={18} />
                 </a>
              </div>

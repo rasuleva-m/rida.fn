@@ -52,7 +52,7 @@ function MainSite() {
       {/* Aesthetic floaters */}
       <div className="fixed top-1/2 right-10 -translate-y-1/2 z-40 hidden xl:flex flex-col space-y-10 items-center">
          <div className="w-[1px] h-20 bg-brand-ink/10" />
-         <a href="https://instagram.com" target="_blank" className="text-brand-ink/40 hover:text-brand-accent transition-colors rotate-90 px-4 text-[10px] uppercase font-bold tracking-[0.2em] whitespace-nowrap">Instagram</a>
+         <a href="https://www.instagram.com/rida.fn?igsh=MWpud3I1NGpzaXB4cg%3D%3D&utm_source=qr" target="_blank" rel="noreferrer noopener" className="text-brand-ink/40 hover:text-brand-accent transition-colors rotate-90 px-4 text-[10px] uppercase font-bold tracking-[0.2em] whitespace-nowrap">Instagram</a>
          <div className="w-[1px] h-20 bg-brand-ink/10" />
       </div>
     </div>

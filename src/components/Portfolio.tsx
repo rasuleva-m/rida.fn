@@ -52,35 +52,37 @@ export default function Portfolio() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          {portfolio.map((item, i) => (
-            <motion.div 
-              key={i}
-              initial={{ opacity: 0, scale: 0.95 }}
-              whileInView={{ opacity: 1, scale: 1 }}
-              transition={{ delay: i * 0.1 }}
-              className="group cursor-default"
-            >
-              <div className="relative aspect-[4/5] overflow-hidden rounded-3xl bg-brand-secondary border border-brand-border shadow-sm">
-                {item.isVideo ? (
-                  <video
-                    src={item.url}
-                    className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-1000"
-                    muted
-                    loop
-                    playsInline
-                    autoPlay
-                  />
-                ) : (
-                  <img
-                    src={item.url}
-                    alt="Portfolio"
-                    className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-1000"
-                  />
-                )}
-              </div>
-            </motion.div>
-          ))}
+        <div className="overflow-x-auto pb-4">
+          <div className="flex gap-4 min-w-max px-2 md:px-4 snap-x snap-mandatory">
+            {portfolio.map((item, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, scale: 0.95 }}
+                whileInView={{ opacity: 1, scale: 1 }}
+                transition={{ delay: i * 0.1 }}
+                className="group cursor-default w-[11rem] md:w-[13rem] flex-shrink-0 snap-start"
+              >
+                <div className="relative aspect-square overflow-hidden rounded-3xl bg-brand-secondary border border-brand-border shadow-sm">
+                  {item.isVideo ? (
+                    <video
+                      src={item.url}
+                      className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-1000"
+                      muted
+                      loop
+                      playsInline
+                      autoPlay
+                    />
+                  ) : (
+                    <img
+                      src={item.url}
+                      alt="Portfolio"
+                      className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-1000"
+                    />
+                  )}
+                </div>
+              </motion.div>
+            ))}
+          </div>
         </div>
       </div>
     </section>
