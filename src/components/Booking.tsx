@@ -44,6 +44,8 @@ export default function Booking() {
   const [apiError, setApiError] = useState<string | null>(null);
   const [freeSlots, setFreeSlots] = useState<string[]>([]);
   const [slotState, setSlotState] = useState<SlotState>("idle");
+  const [telegramConfirmUrl, setTelegramConfirmUrl] = useState<string | null>(null);
+  const [customerNotified, setCustomerNotified] = useState(false);
 
   const selectedServiceLabel =
     serviceOptions.find((s) => s.id === formData.service)?.label ?? formData.service;
@@ -115,6 +117,8 @@ export default function Booking() {
         success?: boolean;
         message?: string;
         freeSlots?: string[];
+        telegramConfirmUrl?: string;
+        customerNotified?: boolean;
       };
 
       if (res.status === 409) {
@@ -133,13 +137,9 @@ export default function Booking() {
         return;
       }
 
+      setTelegramConfirmUrl(data.telegramConfirmUrl ?? null);
+      setCustomerNotified(!!data.customerNotified);
       setStatus("success");
-      setTimeout(() => {
-        setStatus("idle");
-        setFormData({ name: "", phone: "", service: "maniNoCoat", date: "", time: "" });
-        setFreeSlots([]);
-        setSlotState("idle");
-      }, 4000);
     } catch {
       setStatus("error");
       setApiError(t.booking.networkError);
@@ -210,18 +210,50 @@ export default function Booking() {
                   <h3 className="text-xl font-serif italic mb-2 tracking-tight">
                     {t.booking.successTitle}
                   </h3>
-                  <p className="text-xs text-brand-muted uppercase tracking-widest mb-8">
-                    {t.booking.successDesc}
+                  <p className="text-xs text-brand-muted uppercase tracking-widest mb-4">
+                    {customerNotified ? t.booking.successTelegramSent : t.booking.successDesc}
                   </p>
 
-                  <a
-                    href="https://t.me/RidaNailBot"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center space-x-2 text-[10px] uppercase tracking-widest font-bold text-brand-ink hover:text-brand-accent transition-colors border border-brand-border px-6 py-3 rounded-full"
-                  >
-                    <span>{t.booking.directTelegram}</span>
-                  </a>
+                  {telegramConfirmUrl && !customerNotified && (
+                    <p className="text-[10px] text-brand-muted max-w-xs mb-6 leading-relaxed">
+                      {t.booking.successTelegramHint}
+                    </p>
+                  )}
+
+                  <div className="flex flex-col gap-3 w-full max-w-xs">
+                    {telegramConfirmUrl && (
+                      <a
+                        href={telegramConfirmUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="w-full bg-brand-ink text-white py-3 rounded-full text-[10px] uppercase tracking-widest font-bold text-center"
+                      >
+                        {t.booking.getTelegramConfirmation}
+                      </a>
+                    )}
+                    <a
+                      href="https://t.me/RidaNailBot"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center justify-center space-x-2 text-[10px] uppercase tracking-widest font-bold text-brand-ink hover:text-brand-accent transition-colors border border-brand-border px-6 py-3 rounded-full"
+                    >
+                      <span>{t.booking.directTelegram}</span>
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStatus("idle");
+                        setTelegramConfirmUrl(null);
+                        setCustomerNotified(false);
+                        setFormData({ name: "", phone: "", service: "maniNoCoat", date: "", time: "" });
+                        setFreeSlots([]);
+                        setSlotState("idle");
+                      }}
+                      className="text-[9px] uppercase tracking-widest text-brand-muted hover:text-brand-ink"
+                    >
+                      {t.booking.bookAnother}
+                    </button>
+                  </div>
                 </motion.div>
               ) : (
                 <motion.form
