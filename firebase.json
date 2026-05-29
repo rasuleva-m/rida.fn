@@ -21,6 +21,10 @@
     ],
     "rewrites": [
       {
+        "source": "/api/**",
+        "function": "bookingApi"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

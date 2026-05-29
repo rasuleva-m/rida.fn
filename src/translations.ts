@@ -104,7 +104,12 @@ export const translations = {
       labelDate: "Date",
       labelTime: "Time",
       cta: "Request Appointment",
-      error: "Error submitting request. Please try again."
+      error: "Error submitting request. Please try again.",
+      networkError: "Network error. Please try again later.",
+      slotTaken: "This time is already booked. Please choose another.",
+      selectDateForSlots: "Please select a date to load available times.",
+      loadingSlots: "Loading available times...",
+      noSlots: "No slot list available — enter preferred time manually or message on Telegram."
     },
     contact: {
       description: "Specializing in minimalist nail aesthetics and American-style techniques. Precision detailing for the modern professional.",
@@ -226,7 +231,12 @@ export const translations = {
       labelDate: "Дата",
       labelTime: "Время",
       cta: "Запросить Запись",
-      error: "Ошибка отправки. Пожалуйста, попробуйте снова."
+      error: "Ошибка отправки. Пожалуйста, попробуйте снова.",
+      networkError: "Ошибка сети. Попробуйте позже.",
+      slotTaken: "Это время уже занято. Выберите другое.",
+      selectDateForSlots: "Выберите дату, чтобы загрузить свободное время.",
+      loadingSlots: "Загрузка свободного времени...",
+      noSlots: "Список слотов недоступен — введите время вручную или напишите в Telegram."
     },
     contact: {
       description: "Специализируемся на минималистичной эстетике ногтей и американских техниках. Точность в деталях для современного профессионала.",
@@ -348,7 +358,12 @@ export const translations = {
       labelDate: "Sana",
       labelTime: "Vaqt",
       cta: "Bron qilishni so'rash",
-      error: "Yuborishda xatolik yuz berdi. Qayta urinib ko'ring."
+      error: "Yuborishda xatolik yuz berdi. Qayta urinib ko'ring.",
+      networkError: "Tarmoq xatosi. Keyinroq qayta urinib ko'ring.",
+      slotTaken: "Bu vaqt band. Boshqa vaqt tanlang.",
+      selectDateForSlots: "Bo'sh vaqtlarni ko'rish uchun sanani tanlang.",
+      loadingSlots: "Bo'sh vaqtlar yuklanmoqda...",
+      noSlots: "Vaqt ro'yxati mavjud emas — qo'lda kiriting yoki Telegramda yozing."
     },
     contact: {
       description: "Minimalistik tirnoq estetikasi va Amerika uslubidagi texnikalarga ixtisoslashgan. Zamonaviy mutaxassislar uchun aniq detallar.",

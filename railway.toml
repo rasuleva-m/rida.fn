@@ -1,0 +1,8 @@
+[build]
+builder = "nixpacks"
+buildCommand = "npm ci && npm run build:api"
+
+[deploy]
+startCommand = "node dist/api.cjs"
+healthcheckPath = "/"
+restartPolicyType = "ON_FAILURE"
