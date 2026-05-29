@@ -3,6 +3,7 @@ const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https")
 const axios = require("axios");
 const admin = require("firebase-admin");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const i18n = require("./bot-i18n");
 
 admin.initializeApp();
 
@@ -39,43 +40,24 @@ function normalizePhone(phone) {
   return String(phone || "").replace(/\D/g, "");
 }
 
-function formatDay(dateStr) {
-  try {
-    const d = new Date(`${dateStr}T12:00:00`);
-    return d.toLocaleDateString("en-US", {
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
-  } catch {
-    return dateStr;
-  }
+async function getUserLang(chatId) {
+  const doc = await db().collection("telegram_users").doc(String(chatId)).get();
+  if (doc.exists && doc.data().lang) return i18n.normalizeLang(doc.data().lang);
+  return "en";
 }
 
-function welcomeMessage(customerName) {
-  const name = escapeHtml(customerName || "Guest");
-  return (
-    `Welcome <b>${name}</b> to Rida Personal Care Studio ✨\n\n` +
-    `Where elegance meets perfection.\n` +
-    `We create beauty that speaks without words.\n\n` +
-    `Please choose what you'd like to do:\n` +
-    `• Book your appointment through our website\n` +
-    `  <a href="${SITE_URL}">${SITE_URL}</a>\n` +
-    `• Discover our services — tap /free\n\n` +
-    `Your beauty journey starts here 🤍\n\n` +
-    `<b>Your appointments</b> — /mybookings\n` +
-    `<b>Cancel a booking</b> — /cancelbooking`
-  );
+async function setUserLang(chatId, lang) {
+  await db()
+    .collection("telegram_users")
+    .doc(String(chatId))
+    .set({ lang: i18n.normalizeLang(lang), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
 }
 
-function customerBookingConfirmation(name, date, time) {
-  const day = formatDay(date);
+function displayName(from) {
   return (
-    `Dear <b>${escapeHtml(name)}</b> your appointment is booked for <b>${escapeHtml(day)}</b> at <b>${escapeHtml(time)}</b>.\n` +
-    `We're looking forward to seeing you.\n` +
-    `Your master is Farida. 💖🌝\n\n` +
-    `To cancel: /mybookings then tap Cancel, or send /cancelbooking`
+    [from?.first_name, from?.last_name].filter(Boolean).join(" ") ||
+    from?.first_name ||
+    "Guest"
   );
 }
 
@@ -132,11 +114,8 @@ async function isSlotTaken(date, time) {
   return booked.includes(time);
 }
 
-function getAvailableDays(bookedByDate, daysAhead = 14) {
-  const dayNames = [
-    "Sunday", "Monday", "Tuesday", "Wednesday",
-    "Thursday", "Friday", "Saturday",
-  ];
+function getAvailableDays(bookedByDate, daysAhead = 14, lang = "en") {
+  const dayNames = i18n.getAvailableDayNames(lang);
   const result = [];
   for (let i = 0; i <= daysAhead; i++) {
     const d = new Date();
@@ -179,14 +158,13 @@ async function sendTelegram(chatId, text, options = {}) {
   }
 }
 
-function startKeyboard() {
-  return {
-    keyboard: [
-      [{ text: "📱 Share phone for auto-confirm", request_contact: true }],
-      [{ text: "📅 Book on website" }],
-    ],
-    resize_keyboard: true,
-  };
+function welcomeText(lang, name) {
+  return i18n.msg(lang, "welcome")(escapeHtml(name));
+}
+
+function bookingConfirmText(lang, name, date, time) {
+  const day = i18n.formatDayLocalized(date, lang);
+  return i18n.msg(lang, "bookingConfirm")(escapeHtml(name), escapeHtml(day), escapeHtml(time));
 }
 
 async function answerCallback(callbackQueryId, text) {
@@ -197,11 +175,8 @@ async function answerCallback(callbackQueryId, text) {
   });
 }
 
-async function saveTelegramUser(chatId, from, phone = null) {
-  const name =
-    [from?.first_name, from?.last_name].filter(Boolean).join(" ") ||
-    from?.username ||
-    "Guest";
+async function saveTelegramUser(chatId, from, phone = null, lang = null) {
+  const name = displayName(from) || from?.username || "Guest";
   const data = {
     chatId: String(chatId),
     name,
@@ -209,6 +184,13 @@ async function saveTelegramUser(chatId, from, phone = null) {
     updatedAt: FieldValue.serverTimestamp(),
   };
   if (phone) data.phone = normalizePhone(phone);
+  if (lang) data.lang = i18n.normalizeLang(lang);
+  else if (from?.language_code) {
+    const doc = await db().collection("telegram_users").doc(String(chatId)).get();
+    if (!doc.exists || !doc.data().lang) {
+      data.lang = i18n.detectLangFromTelegram(from.language_code);
+    }
+  }
   await db().collection("telegram_users").doc(String(chatId)).set(data, { merge: true });
   return name;
 }
@@ -246,12 +228,13 @@ function isMaster(chatId) {
 }
 
 async function cancelBooking(bookingId, cancelledBy, actorChatId) {
+  const lang = await getUserLang(actorChatId);
   const ref = db().collection("bookings").doc(bookingId);
   const doc = await ref.get();
-  if (!doc.exists) return { ok: false, message: "Booking not found." };
+  if (!doc.exists) return { ok: false, message: i18n.msg(lang, "errNotFound") };
 
   const b = doc.data();
-  if (b.status === "cancelled") return { ok: false, message: "Already cancelled." };
+  if (b.status === "cancelled") return { ok: false, message: i18n.msg(lang, "errAlreadyCancelled") };
 
   const master = isMaster(actorChatId);
   const owner = String(b.telegramChatId) === String(actorChatId);
@@ -261,7 +244,7 @@ async function cancelBooking(bookingId, cancelledBy, actorChatId) {
     userPhone && b.phone && normalizePhone(b.phone) === normalizePhone(userPhone);
 
   if (!master && !owner && !phoneMatch) {
-    return { ok: false, message: "You cannot cancel this booking." };
+    return { ok: false, message: i18n.msg(lang, "errCannotCancel") };
   }
 
   await ref.update({
@@ -270,14 +253,21 @@ async function cancelBooking(bookingId, cancelledBy, actorChatId) {
     cancelledBy,
   });
 
-  const day = formatDay(b.date);
-  const customerMsg =
-    `Your appointment on <b>${escapeHtml(day)}</b> at <b>${escapeHtml(b.time)}</b> has been cancelled.\n` +
-    `If this was unexpected, please contact us or book again: ${SITE_URL}`;
-
-  const masterMsg =
-    `❌ <b>Booking cancelled</b> (${cancelledBy})\n\n` +
-    `👤 ${escapeHtml(b.name)}\n📅 ${escapeHtml(day)} ${escapeHtml(b.time)}\n🆔 #${bookingId}`;
+  const customerLang = b.telegramChatId
+    ? await getUserLang(b.telegramChatId)
+    : lang;
+  const day = i18n.formatDayLocalized(b.date, customerLang);
+  const customerMsg = i18n.msg(customerLang, "customerCancelledNotify")(
+    escapeHtml(day),
+    escapeHtml(b.time)
+  );
+  const masterMsg = i18n.msg("en", "masterCancelledNotify")(
+    escapeHtml(b.name),
+    escapeHtml(i18n.formatDayLocalized(b.date, "en")),
+    escapeHtml(b.time),
+    bookingId,
+    cancelledBy
+  );
 
   if (b.telegramChatId) {
     await sendTelegram(b.telegramChatId, customerMsg).catch(() => {});
@@ -291,22 +281,24 @@ async function cancelBooking(bookingId, cancelledBy, actorChatId) {
 
 async function notifyCustomerBooking(bookingId, b, chatId) {
   if (!chatId) return;
+  const lang = await getUserLang(chatId);
   await db().collection("bookings").doc(bookingId).update({
     telegramChatId: String(chatId),
   });
-  await sendTelegram(chatId, customerBookingConfirmation(b.name, b.date, b.time));
+  await sendTelegram(chatId, bookingConfirmText(lang, b.name, b.date, b.time));
 }
 
 async function linkBookingFromStart(bookingId, chatId, from) {
+  const lang = await getUserLang(chatId);
   const ref = db().collection("bookings").doc(bookingId);
   const doc = await ref.get();
   if (!doc.exists) {
-    await sendTelegram(chatId, "❌ Booking not found. It may have expired.");
+    await sendTelegram(chatId, i18n.msg(lang, "bookingNotFound"));
     return;
   }
   const b = doc.data();
   if (b.status === "cancelled") {
-    await sendTelegram(chatId, "This booking was cancelled. Please book again on our website.");
+    await sendTelegram(chatId, i18n.msg(lang, "bookingWasCancelled"));
     return;
   }
   await saveTelegramUser(chatId, from, b.phone);
@@ -317,6 +309,14 @@ async function tryNotifyCustomerByPhone(bookingId, b) {
   const chatId = await findChatIdByPhone(b.phone);
   if (chatId) await notifyCustomerBooking(bookingId, b, chatId);
   return chatId;
+}
+
+async function sendWelcome(chatId, from) {
+  const lang = await getUserLang(chatId);
+  const name = displayName(from);
+  await sendTelegram(chatId, welcomeText(lang, name), {
+    replyMarkup: i18n.startKeyboard(lang),
+  });
 }
 
 function masterBookingKeyboard(bookingId) {
@@ -330,14 +330,18 @@ function masterBookingKeyboard(bookingId) {
   };
 }
 
-function customerBookingsKeyboard(bookings) {
+function customerBookingsKeyboard(bookings, lang) {
   const rows = bookings.slice(0, 8).map((b) => [
     {
       text: `❌ ${b.date} ${b.time} — ${b.service}`.slice(0, 60),
       callback_data: `customer_cancel:${b.id}`,
     },
   ]);
-  return { inline_keyboard: rows.length ? rows : [[{ text: "Book on website", url: SITE_URL }]] };
+  return {
+    inline_keyboard: rows.length
+      ? rows
+      : [[{ text: i18n.msg(lang, "inlineBook"), url: SITE_URL }]],
+  };
 }
 
 function apiPath(req) {
@@ -476,15 +480,29 @@ exports.telegramWebhook = onRequest(httpOptions, async (req, res) => {
       const cq = update.callback_query;
       const chatId = cq.message?.chat?.id;
       const data = cq.data || "";
+      const lang = await getUserLang(chatId);
+
+      if (data.startsWith("lang:")) {
+        const newLang = i18n.normalizeLang(data.replace("lang:", ""));
+        await setUserLang(chatId, newLang);
+        if (cq.from) await saveTelegramUser(chatId, cq.from, null, newLang);
+        await answerCallback(cq.id, i18n.msg(newLang, "language.set"));
+        try {
+          await sendWelcome(chatId, cq.from || { first_name: "Guest" });
+        } catch (e) {
+          logger.error("welcome after lang failed", e);
+        }
+        return res.send("ok");
+      }
 
       if (data.startsWith("master_cancel:")) {
         if (!isMaster(chatId)) {
-          await answerCallback(cq.id, "Master only");
+          await answerCallback(cq.id, i18n.msg(lang, "callbackMasterOnly"));
           return res.send("ok");
         }
         const id = data.replace("master_cancel:", "");
         const result = await cancelBooking(id, "master", chatId);
-        await answerCallback(cq.id, result.ok ? "Cancelled" : result.message);
+        await answerCallback(cq.id, result.ok ? i18n.msg(lang, "callbackCancelled") : result.message);
         if (result.ok && cq.message) {
           await axios.post(`https://api.telegram.org/bot${TOKEN}/editMessageReplyMarkup`, {
             chat_id: chatId,
@@ -496,13 +514,19 @@ exports.telegramWebhook = onRequest(httpOptions, async (req, res) => {
         const list = await listActiveBookings();
         const body = list.length
           ? list.map((b, i) => `${i + 1}. <b>${escapeHtml(b.name)}</b> — ${b.date} ${b.time}\n🆔 <code>${b.id}</code>`).join("\n\n")
-          : "No active bookings.";
-        await sendTelegram(chatId, `📋 <b>Bookings</b>\n\n${body}\n\nCancel: /cancel &lt;id&gt;`);
+          : i18n.msg(lang, "noActiveBookings");
+        await sendTelegram(
+          chatId,
+          `📋 <b>${i18n.msg(lang, "bookingsTitle")}</b>\n\n${body}\n\n${i18n.msg(lang, "cancelHint")}`
+        );
         await answerCallback(cq.id);
       } else if (data.startsWith("customer_cancel:")) {
         const id = data.replace("customer_cancel:", "");
         const result = await cancelBooking(id, "customer", chatId);
-        await answerCallback(cq.id, result.ok ? "Appointment cancelled" : result.message);
+        await answerCallback(
+          cq.id,
+          result.ok ? i18n.msg(lang, "callbackApptCancelled") : result.message
+        );
       }
 
       return res.send("ok");
@@ -514,15 +538,15 @@ exports.telegramWebhook = onRequest(httpOptions, async (req, res) => {
       const from = message.from;
       const text = message.text || "";
 
+      const lang = await getUserLang(chatId);
+
       if (message.contact) {
         const phone = message.contact.phone_number;
         const name = await saveTelegramUser(chatId, from, phone);
         await sendTelegram(
           chatId,
-          `Thank you <b>${escapeHtml(name)}</b>! Your number is saved.\n` +
-            `When you book on our website with this phone, confirmations arrive here automatically. 🤍\n\n` +
-            welcomeMessage(name),
-          { replyMarkup: startKeyboard() }
+          `${i18n.msg(lang, "phoneSaved")(escapeHtml(name))}\n\n${welcomeText(lang, name)}`,
+          { replyMarkup: i18n.startKeyboard(lang) }
         );
         return res.send("ok");
       }
@@ -530,10 +554,6 @@ exports.telegramWebhook = onRequest(httpOptions, async (req, res) => {
       const startPayload = text.match(/^\/start(?:@\w+)?(?:\s+(.+))?$/i);
       if (startPayload) {
         const payload = startPayload[1]?.trim();
-        const displayName =
-          [from?.first_name, from?.last_name].filter(Boolean).join(" ") ||
-          from?.first_name ||
-          "Guest";
 
         if (payload?.startsWith("confirm_")) {
           const bookingId = payload.replace("confirm_", "");
@@ -542,36 +562,39 @@ exports.telegramWebhook = onRequest(httpOptions, async (req, res) => {
         }
 
         await saveTelegramUser(chatId, from);
-        try {
-          await sendTelegram(chatId, welcomeMessage(displayName), {
-            replyMarkup: startKeyboard(),
+        const userDoc = await db().collection("telegram_users").doc(String(chatId)).get();
+        const hasLang = userDoc.exists && userDoc.data().lang;
+
+        if (!hasLang) {
+          await sendTelegram(chatId, i18n.msg("en", "language.choose"), {
+            replyMarkup: i18n.languageKeyboard(),
           });
+          return res.send("ok");
+        }
+
+        try {
+          await sendWelcome(chatId, from);
         } catch (e) {
           logger.error("/start send failed", e.response?.data || e.message);
-          await sendTelegram(chatId, welcomeMessage(displayName)).catch(() => {});
+          await sendTelegram(chatId, welcomeText(lang, displayName(from))).catch(() => {});
         }
         return res.send("ok");
       }
 
-      if (text === "📅 Book on website") {
-        await sendTelegram(
-          chatId,
-          `Book your appointment here:\n<a href="${SITE_URL}">${SITE_URL}</a>`
-        );
+      if (text === "/language" || text.startsWith("/language@")) {
+        await sendTelegram(chatId, i18n.msg(lang, "language.choose"), {
+          replyMarkup: i18n.languageKeyboard(),
+        });
+        return res.send("ok");
+      }
+
+      if (i18n.isBookWebsiteButton(text)) {
+        await sendTelegram(chatId, i18n.msg(lang, "bookLink"));
         return res.send("ok");
       }
 
       if (text === "/help" || text.startsWith("/help@")) {
-        await sendTelegram(
-          chatId,
-          `<b>Commands</b>\n` +
-            `/start — Welcome\n` +
-            `/free — Free times\n` +
-            `/mybookings — Your appointments\n` +
-            `/cancelbooking — Cancel (with buttons)\n` +
-            `/bookings — All bookings (master)\n` +
-            `/cancel &lt;id&gt; — Cancel by ID (master)`
-        );
+        await sendTelegram(chatId, i18n.msg(lang, "help"));
         return res.send("ok");
       }
 
@@ -585,11 +608,14 @@ exports.telegramWebhook = onRequest(httpOptions, async (req, res) => {
           const day = String(d.getDate()).padStart(2, "0");
           bookedByDate[`${y}-${m}-${day}`] = await getBookedTimes(`${y}-${m}-${day}`);
         }
-        const days = getAvailableDays(bookedByDate, 14);
+        const days = getAvailableDays(bookedByDate, 14, lang);
         const lines = days
           .map((d) => `📅 <b>${d.dayName} ${d.date}</b>\n⏰ ${d.freeSlots.join(" | ")}`)
           .join("\n\n");
-        await sendTelegram(chatId, `✅ <b>Free slots</b>\n\n${lines || "No slots found."}`);
+        await sendTelegram(
+          chatId,
+          `✅ <b>${i18n.msg(lang, "freeTitle")}</b>\n\n${lines || i18n.msg(lang, "noSlots")}`
+        );
         return res.send("ok");
       }
 
@@ -598,20 +624,16 @@ exports.telegramWebhook = onRequest(httpOptions, async (req, res) => {
         const phone = userDoc.exists ? userDoc.data().phone : null;
         const mine = await listCustomerBookings(chatId, phone);
         if (!mine.length) {
-          await sendTelegram(
-            chatId,
-            `You have no active bookings.\n\nBook here: ${SITE_URL}\n\n` +
-              `After booking, open:\nhttps://t.me/${BOT_USERNAME}?start=confirm_<booking_id>`
-          );
+          await sendTelegram(chatId, i18n.msg(lang, "noBookings")(BOT_USERNAME));
         } else {
           const lines = mine
             .map(
               (b, i) =>
-                `${i + 1}. <b>${escapeHtml(b.service)}</b>\n   ${formatDay(b.date)} at ${b.time}\n   🆔 <code>${b.id}</code>`
+                `${i + 1}. <b>${escapeHtml(b.service)}</b>\n   ${i18n.formatDayLocalized(b.date, lang)} — ${b.time}\n   🆔 <code>${b.id}</code>`
             )
             .join("\n\n");
-          await sendTelegram(chatId, `📋 <b>Your bookings</b>\n\n${lines}`, {
-            replyMarkup: customerBookingsKeyboard(mine),
+          await sendTelegram(chatId, `📋 <b>${i18n.msg(lang, "myBookingsTitle")}</b>\n\n${lines}`, {
+            replyMarkup: customerBookingsKeyboard(mine, lang),
           });
         }
         return res.send("ok");
@@ -622,10 +644,10 @@ exports.telegramWebhook = onRequest(httpOptions, async (req, res) => {
         const phone = userDoc.exists ? userDoc.data().phone : null;
         const mine = await listCustomerBookings(chatId, phone);
         if (!mine.length) {
-          await sendTelegram(chatId, "No active bookings to cancel.");
+          await sendTelegram(chatId, i18n.msg(lang, "noCancel"));
         } else {
-          await sendTelegram(chatId, "Tap the appointment to cancel:", {
-            replyMarkup: customerBookingsKeyboard(mine),
+          await sendTelegram(chatId, i18n.msg(lang, "cancelPrompt"), {
+            replyMarkup: customerBookingsKeyboard(mine, lang),
           });
         }
         return res.send("ok");
@@ -634,17 +656,20 @@ exports.telegramWebhook = onRequest(httpOptions, async (req, res) => {
       if (text.startsWith("/cancel ") || text.startsWith("/cancel@")) {
         const id = text.split(/\s+/)[1]?.trim();
         if (!id) {
-          await sendTelegram(chatId, "Usage: /cancel &lt;booking_id&gt;");
+          await sendTelegram(chatId, i18n.msg(lang, "cancelUsage"));
           return res.send("ok");
         }
         if (isMaster(chatId)) {
           const result = await cancelBooking(id, "master", chatId);
-          await sendTelegram(chatId, result.ok ? `✅ Cancelled #${id}` : `❌ ${result.message}`);
+          await sendTelegram(
+            chatId,
+            result.ok ? i18n.msg(lang, "cancelledOk")(id) : `❌ ${result.message}`
+          );
         } else {
           const result = await cancelBooking(id, "customer", chatId);
           await sendTelegram(
             chatId,
-            result.ok ? `✅ Your appointment was cancelled.` : `❌ ${result.message}`
+            result.ok ? i18n.msg(lang, "customerCancelledOk") : `❌ ${result.message}`
           );
         }
         return res.send("ok");
@@ -652,7 +677,7 @@ exports.telegramWebhook = onRequest(httpOptions, async (req, res) => {
 
       if (text === "/bookings" || text.startsWith("/bookings@")) {
         if (!isMaster(chatId)) {
-          await sendTelegram(chatId, "❌ Master only.");
+          await sendTelegram(chatId, i18n.msg(lang, "masterOnly"));
         } else {
           const list = await listActiveBookings();
           const body = list.length
@@ -662,20 +687,17 @@ exports.telegramWebhook = onRequest(httpOptions, async (req, res) => {
                     `${i + 1}. <b>${escapeHtml(b.name)}</b>\n   📞 ${escapeHtml(b.phone)}\n   💅 ${escapeHtml(b.service)}\n   📅 ${b.date} ${b.time}\n   🆔 <code>${b.id}</code>`
                 )
                 .join("\n\n")
-            : "📭 No active bookings.";
+            : i18n.msg(lang, "noActiveBookings");
           await sendTelegram(
             chatId,
-            `📋 <b>Bookings</b>\n\n${body}\n\n/cancel &lt;id&gt; or use ❌ on new booking messages`
+            `📋 <b>${i18n.msg(lang, "bookingsTitle")}</b>\n\n${body}\n\n${i18n.msg(lang, "cancelHint")}`
           );
         }
         return res.send("ok");
       }
 
       if (!text.startsWith("/")) {
-        await sendTelegram(
-          chatId,
-          `Hello! Tap /start or book on our website:\n${SITE_URL}`
-        );
+        await sendTelegram(chatId, i18n.msg(lang, "hello"));
       }
       return res.send("ok");
     }
