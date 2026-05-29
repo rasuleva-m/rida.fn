@@ -1,4 +1,5 @@
-const functions = require("firebase-functions");
+const { logger } = require("firebase-functions");
+const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
 const axios = require("axios");
 const admin = require("firebase-admin");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
@@ -164,7 +165,28 @@ async function sendTelegram(chatId, text, options = {}) {
     disable_web_page_preview: options.disablePreview ?? false,
   };
   if (options.replyMarkup) body.reply_markup = options.replyMarkup;
-  await axios.post(`https://api.telegram.org/bot${TOKEN}/sendMessage`, body);
+  try {
+    await axios.post(`https://api.telegram.org/bot${TOKEN}/sendMessage`, body);
+  } catch (err) {
+    const desc = err.response?.data?.description || err.message;
+    logger.error("sendTelegram failed", { chatId, desc });
+    if (options.replyMarkup) {
+      delete body.reply_markup;
+      await axios.post(`https://api.telegram.org/bot${TOKEN}/sendMessage`, body);
+    } else {
+      throw err;
+    }
+  }
+}
+
+function startKeyboard() {
+  return {
+    keyboard: [
+      [{ text: "📱 Share phone for auto-confirm", request_contact: true }],
+      [{ text: "📅 Book on website" }],
+    ],
+    resize_keyboard: true,
+  };
 }
 
 async function answerCallback(callbackQueryId, text) {
@@ -326,7 +348,9 @@ function apiPath(req) {
     : normalized;
 }
 
-exports.bookingApi = functions.https.onRequest(async (req, res) => {
+const httpOptions = { region: "us-central1", invoker: "public" };
+
+exports.bookingApi = onRequest(httpOptions, async (req, res) => {
   setCors(res);
   if (req.method === "OPTIONS") return res.status(204).send("");
   const path = apiPath(req);
@@ -416,7 +440,7 @@ exports.bookingApi = functions.https.onRequest(async (req, res) => {
           `🆔 #${bookingId}`;
         await sendTelegram(MASTER_CHAT_ID, masterMsg, {
           replyMarkup: masterBookingKeyboard(bookingId),
-        }).catch((e) => functions.logger.error("Master notify failed", e));
+        }).catch((e) => logger.error("Master notify failed", e));
       }
 
       let customerNotified = false;
@@ -439,12 +463,12 @@ exports.bookingApi = functions.https.onRequest(async (req, res) => {
 
     return res.status(404).json({ success: false, message: "Not found" });
   } catch (err) {
-    functions.logger.error("bookingApi error", err);
+    logger.error("bookingApi error", err);
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
 
-exports.telegramWebhook = functions.https.onRequest(async (req, res) => {
+exports.telegramWebhook = onRequest(httpOptions, async (req, res) => {
   try {
     const update = req.body || {};
 
@@ -498,12 +522,7 @@ exports.telegramWebhook = functions.https.onRequest(async (req, res) => {
           `Thank you <b>${escapeHtml(name)}</b>! Your number is saved.\n` +
             `When you book on our website with this phone, confirmations arrive here automatically. 🤍\n\n` +
             welcomeMessage(name),
-          {
-            replyMarkup: {
-              keyboard: [[{ text: "📅 Book on website", web_app: { url: SITE_URL } }]],
-              resize_keyboard: true,
-            },
-          }
+          { replyMarkup: startKeyboard() }
         );
         return res.send("ok");
       }
@@ -523,15 +542,22 @@ exports.telegramWebhook = functions.https.onRequest(async (req, res) => {
         }
 
         await saveTelegramUser(chatId, from);
-        await sendTelegram(chatId, welcomeMessage(displayName), {
-          replyMarkup: {
-            keyboard: [
-              [{ text: "📱 Share phone for auto-confirm", request_contact: true }],
-              [{ text: "📅 Book on website", web_app: { url: SITE_URL } }],
-            ],
-            resize_keyboard: true,
-          },
-        });
+        try {
+          await sendTelegram(chatId, welcomeMessage(displayName), {
+            replyMarkup: startKeyboard(),
+          });
+        } catch (e) {
+          logger.error("/start send failed", e.response?.data || e.message);
+          await sendTelegram(chatId, welcomeMessage(displayName)).catch(() => {});
+        }
+        return res.send("ok");
+      }
+
+      if (text === "📅 Book on website") {
+        await sendTelegram(
+          chatId,
+          `Book your appointment here:\n<a href="${SITE_URL}">${SITE_URL}</a>`
+        );
         return res.send("ok");
       }
 
@@ -656,19 +682,19 @@ exports.telegramWebhook = functions.https.onRequest(async (req, res) => {
 
     return res.send("ok");
   } catch (error) {
-    functions.logger.error("telegramWebhook error", error);
-    res.status(500).send("error");
+    logger.error("telegramWebhook error", error);
+    return res.status(200).send("ok");
   }
 });
 
-exports.submitBooking = functions.https.onCall(async (data) => {
-  const { name, phone, service, date, time } = data;
+exports.submitBooking = onCall({ region: "us-central1" }, async (request) => {
+  const { name, phone, service, date, time } = request.data || {};
   const normalized = normalizeTime(time);
   if (!name || !phone || !service || !date || !normalized) {
-    throw new functions.https.HttpsError("invalid-argument", "Missing required fields");
+    throw new HttpsError("invalid-argument", "Missing required fields");
   }
   if (await isSlotTaken(date, normalized)) {
-    throw new functions.https.HttpsError("already-exists", "This time slot is already booked.");
+    throw new HttpsError("already-exists", "This time slot is already booked.");
   }
   const docRef = await db().collection("bookings").add({
     name: String(name).trim(),
